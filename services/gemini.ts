@@ -2,31 +2,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Detection } from "../types";
 
-const MODEL_NAME = 'gemini-3-pro-preview';
+// Using Gemini 3 Flash for the fastest possible inference latency (usually < 3s)
+const MODEL_NAME = 'gemini-3-flash-preview';
 
 export const analyzeImageForPII = async (base64Image: string): Promise<Detection[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   
   const prompt = `
-    Analyze this image and detect all instances of Personally Identifiable Information (PII) or sensitive content.
-    Look for:
-    - Faces
-    - Names
-    - Phone numbers
-    - Email addresses
-    - Physical addresses
-    - Credit card numbers
-    - Driver's licenses or ID cards
-    - Signatures
-    - Confidential stamps or markings
-    - Passwords or sensitive text
+    Find all PII/sensitive data in this image.
     
-    Return a JSON array of objects. Each object must contain:
-    - "label": A short descriptive name for the detected PII (e.g., "Face", "Credit Card", "Phone Number").
-    - "confidence": A float between 0 and 1.
-    - "box_2d": An array [ymin, xmin, ymax, xmax] normalized from 0 to 1000.
+    RULES:
+    - Use [ymin, xmin, ymax, xmax] coordinates (0-1000).
+    - Tight bounding boxes.
+    - Labels: "Face", "Name", "ID Card", "Phone Number", "Email", "Address", "Credit Card", "Signature", "Sensitive Text".
     
-    Be precise with the bounding boxes.
+    Output JSON array: [{"label": string, "confidence": number, "box_2d": [n,n,n,n]}]
   `;
 
   try {
@@ -39,6 +29,8 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
         ]
       },
       config: {
+        // Thinking budget 0 and Flash model minimize wait time significantly
+        thinkingConfig: { thinkingBudget: 0 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -67,7 +59,7 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
     return rawDetections.map((d: any, index: number) => ({
       ...d,
       id: `det-${index}-${Date.now()}`,
-      selected: true // Default to selected for redaction
+      selected: true
     }));
   } catch (error) {
     console.error("AI Analysis failed:", error);
