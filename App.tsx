@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Detection, AppState } from './types';
+import { Detection, AppState, ImageItem } from './types';
 import { analyzeImageForPII } from './services/gemini';
 import Logo from './Logo';
 import { 
@@ -19,7 +19,8 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
-  Info
+  Info,
+  UploadCloud
 } from 'lucide-react';
 
 const SCAN_MESSAGES = [
@@ -39,6 +40,8 @@ const App: React.FC = () => {
     isAnalyzing: false,
     detections: [],
     error: null,
+    images: [],
+    activeImageId: null,
   });
   
   const [redactionColor, setRedactionColor] = useState('#000000');
@@ -93,69 +96,196 @@ const App: React.FC = () => {
     });
   };
 
-  const handleSetImage = (base64: string, name: string) => {
-    setState({
-      image: base64,
-      fileName: name,
-      isAnalyzing: false,
-      detections: [],
-      error: null,
-    });
-    setShowOriginal(false);
-  };
-
   const handleStartScan = async () => {
-    if (!state.image) return;
-    setState(prev => ({ ...prev, isAnalyzing: true, error: null }));
+    if (!state.image || !state.activeImageId) return;
+    const targetId = state.activeImageId;
+
+    setState(prev => ({
+      ...prev,
+      isAnalyzing: true,
+      error: null,
+      images: prev.images.map(img =>
+        img.id === targetId ? { ...img, isAnalyzing: true, error: null } : img
+      ),
+    }));
     
     try {
       const optimizedImage = await optimizeImage(state.image);
       const results = await analyzeImageForPII(optimizedImage);
       
-      setState(prev => ({ 
-        ...prev, 
-        detections: results, 
-        isAnalyzing: false 
-      }));
+      setState(prev => {
+        const images = prev.images.map(img =>
+          img.id === targetId ? { ...img, isAnalyzing: false, detections: results } : img
+        );
+        const activeImage = images.find(img => img.id === prev.activeImageId);
+
+        return {
+          ...prev,
+          detections: activeImage ? activeImage.detections : prev.detections,
+          isAnalyzing: false,
+          images,
+        };
+      });
       
       const uniqueLabels = Array.from(new Set(results.map(r => r.label)));
       setExpandedCategories(uniqueLabels.reduce((acc, label) => ({ ...acc, [label]: true }), {}));
     } catch (err: any) {
-      setState(prev => ({ 
-        ...prev, 
-        isAnalyzing: false, 
-        error: "Privacy scan failed. Check network or API limits." 
+      setState(prev => ({
+        ...prev,
+        isAnalyzing: false,
+        error: "Privacy scan failed. Check network or API limits.",
+        images: prev.images.map(img =>
+          img.id === targetId ? { ...img, isAnalyzing: false, error: "Privacy scan failed. Check network or API limits." } : img
+        ),
       }));
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      handleSetImage(base64, file.name);
-    };
-    reader.readAsDataURL(file);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (files.length > 10) {
+      setState(prev => ({
+        ...prev,
+        error: "You can upload up to 10 images at a time. Please select 10 or fewer images.",
+      }));
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    const allFiles = Array.from(files);
+    const imageFiles = allFiles.filter(file => file.type.startsWith('image/'));
+
+    if (imageFiles.length === 0) {
+      setState(prev => ({
+        ...prev,
+        error: "Only image files are supported. Please select valid image formats.",
+      }));
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    if (imageFiles.length !== allFiles.length) {
+      setState(prev => ({
+        ...prev,
+        error: "Some files were skipped because they are not supported image formats.",
+      }));
+    }
+
+    const filePromises = imageFiles.map(
+      (file) =>
+        new Promise<{ file: File; src: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64 = event.target?.result as string;
+            resolve({ file, src: base64 });
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        })
+    );
+
+    try {
+      const results = await Promise.all(filePromises);
+      const timestamp = Date.now();
+
+      const newImages: ImageItem[] = results.map((result, index) => ({
+        id: `img-${timestamp}-${index}`,
+        fileName: result.file.name,
+        src: result.src,
+        detections: [],
+        isAnalyzing: false,
+        error: null,
+      }));
+
+      const first = newImages[0];
+
+      setState(prev => ({
+        ...prev,
+        images: newImages,
+        activeImageId: first.id,
+        image: first.src,
+        fileName: first.fileName,
+        detections: first.detections,
+        error: null,
+        isAnalyzing: false,
+      }));
+      setShowOriginal(false);
+      setExpandedCategories({});
+    } catch (err) {
+      console.error("Failed to read one or more image files:", err);
+      setState(prev => ({
+        ...prev,
+        error: "Failed to read one or more image files. Please try again.",
+      }));
+    }
   };
 
   const toggleCategory = (label: string, shouldSelect: boolean) => {
-    setState(prev => ({
-      ...prev,
-      detections: prev.detections.map(d => d.label === label ? { ...d, selected: shouldSelect } : d)
-    }));
+    setState(prev => {
+      const updatedDetections = prev.detections.map(d =>
+        d.label === label ? { ...d, selected: shouldSelect } : d
+      );
+
+      const images = prev.images.map(img =>
+        img.id === prev.activeImageId
+          ? {
+              ...img,
+              detections: img.detections.map(d =>
+                d.label === label ? { ...d, selected: shouldSelect } : d
+              ),
+            }
+          : img
+      );
+
+      return {
+        ...prev,
+        detections: updatedDetections,
+        images,
+      };
+    });
   };
 
   const toggleDetection = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      detections: prev.detections.map(d => d.id === id ? { ...d, selected: !d.selected } : d)
-    }));
+    setState(prev => {
+      const updatedDetections = prev.detections.map(d =>
+        d.id === id ? { ...d, selected: !d.selected } : d
+      );
+
+      const images = prev.images.map(img =>
+        img.id === prev.activeImageId
+          ? {
+              ...img,
+              detections: img.detections.map(d =>
+                d.id === id ? { ...d, selected: !d.selected } : d
+              ),
+            }
+          : img
+      );
+
+      return {
+        ...prev,
+        detections: updatedDetections,
+        images,
+      };
+    });
   };
 
   const removeImage = () => {
-    setState({ image: null, fileName: null, isAnalyzing: false, detections: [], error: null });
+    setState({
+      image: null,
+      fileName: null,
+      isAnalyzing: false,
+      detections: [],
+      error: null,
+      images: [],
+      activeImageId: null,
+    });
     if (fileInputRef.current) fileInputRef.current.value = '';
     setExpandedCategories({});
   };
@@ -212,6 +342,27 @@ const App: React.FC = () => {
     }));
   }, [state.detections]);
 
+  const handleSelectImage = (id: string) => {
+    setState(prev => {
+      const image = prev.images.find(img => img.id === id);
+      if (!image) return prev;
+
+      const uniqueLabels = Array.from(new Set(image.detections.map(r => r.label)));
+      setExpandedCategories(uniqueLabels.reduce((acc, label) => ({ ...acc, [label]: true }), {}));
+
+      return {
+        ...prev,
+        activeImageId: id,
+        image: image.src,
+        fileName: image.fileName,
+        detections: image.detections,
+        error: image.error,
+        isAnalyzing: image.isAnalyzing,
+      };
+    });
+    setShowOriginal(false);
+  };
+
   return (
     <div className="min-h-screen flex flex-col font-sans text-slate-200 bg-[#0f172a]">
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl sticky top-0 z-50 shadow-lg h-16 shrink-0">
@@ -225,6 +376,16 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setState(prev => ({ ...prev, error: null }));
+                fileInputRef.current?.click();
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border border-indigo-500/40 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition-all"
+            >
+              <UploadCloud className="w-3 h-3" />
+              Upload Images
+            </button>
             {state.image && !state.isAnalyzing && state.detections.length > 0 && (
               <button 
                 onClick={() => setShowOriginal(!showOriginal)} 
@@ -234,7 +395,14 @@ const App: React.FC = () => {
                 {showOriginal ? 'Apply Shields' : 'Reveal Sensitive Areas'}
               </button>
             )}
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept="image/*" 
+              multiple 
+              onChange={handleFileUpload} 
+            />
           </div>
         </div>
       </header>
@@ -302,6 +470,80 @@ const App: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Image list/grid preview */}
+          {state.images.length > 0 && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                  Image Batch ({state.images.length}/10)
+                </h3>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {state.images.map(image => {
+                  const isActive = image.id === state.activeImageId;
+                  const hasDetections = image.detections.length > 0;
+
+                  let statusLabel = 'Pending Scan';
+                  let statusClass = 'text-slate-500 bg-slate-900 border-slate-800';
+                  if (image.isAnalyzing) {
+                    statusLabel = 'Scanning...';
+                    statusClass = 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30';
+                  } else if (image.error) {
+                    statusLabel = 'Error';
+                    statusClass = 'text-red-300 bg-red-500/10 border-red-500/30';
+                  } else if (hasDetections) {
+                    statusLabel = 'Redacted';
+                    statusClass = 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30';
+                  }
+
+                  return (
+                    <button
+                      key={image.id}
+                      onClick={() => handleSelectImage(image.id)}
+                      className={`group flex flex-col gap-2 p-2 rounded-2xl border text-left transition-all ${
+                        isActive
+                          ? 'border-indigo-500/60 bg-slate-800/80 shadow-lg shadow-indigo-500/20'
+                          : 'border-slate-800 bg-slate-900/40 hover:border-indigo-500/40 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <div className="relative rounded-xl overflow-hidden border border-slate-800/60 h-20 bg-slate-900/60">
+                        <img
+                          src={image.src}
+                          alt={image.fileName}
+                          className="w-full h-full object-cover"
+                        />
+                        {image.isAnalyzing && (
+                          <div className="absolute inset-0 bg-slate-900/70 flex items-center justify-center text-[8px] font-black uppercase tracking-widest text-indigo-300">
+                            Scanning...
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <p className="text-[9px] font-bold text-slate-300 truncate">
+                          {image.fileName}
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${statusClass}`}
+                          >
+                            {statusLabel}
+                          </span>
+                          {hasDetections && (
+                            <span className="text-[8px] font-bold text-indigo-300">
+                              {image.detections.length} masks
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {state.error && (
             <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-bold uppercase tracking-widest flex items-center gap-3">
               <AlertCircle className="w-5 h-5 shrink-0" /> 
