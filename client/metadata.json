@@ -1,0 +1,7 @@
+{
+  "name": "GuardVision PII Redactor",
+  "description": "An advanced privacy-focused tool that uses Gemini 3 Pro to automatically detect and redact sensitive PII and confidential content from images.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
