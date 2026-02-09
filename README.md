@@ -34,3 +34,6 @@ This contains everything you need to run your app locally.
 ## 🎥 Demo Video
 
 [![GuardVision Demo](https://img.youtube.com/vi/-PxtRT_xSe4/0.jpg)](https://www.youtube.com/watch?v=-PxtRT_xSe4)
+
+## Code Conduct 
+Kindly check this [code_conduct](https://github.com/SowmyaLR/GuardVision/blob/main/CODE_CONDUCT.md)
