@@ -50,6 +50,14 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
     - "Signature": Handwritten signatures.
     - "Sensitive Text": Contextually private data or medical notes.
     
+    HIPAA-SPECIFIC CATEGORIES (Healthcare Contexts):
+    - "Date": Date of birth, admission dates, discharge dates, prescription dates, or any healthcare-related dates.
+    - "Medical Record Number": Patient MRN or medical record identifiers.
+    - "Health Plan ID": Insurance policy numbers, member IDs, or health plan identifiers.
+    - "Account Number": Healthcare billing numbers or account identifiers.
+    - "Device Identifier": Medical device serial numbers, implant identifiers, or equipment IDs.
+    - "Biometric Identifier": Fingerprints, retinal scans, iris scans, or other biometric markers beyond facial recognition.
+    
     OUTPUT FORMAT: Return ONLY a valid JSON array of objects.
   `;
 
