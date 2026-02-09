@@ -29,7 +29,7 @@ const applySafetyBuffer = (box: [number, number, number, number], bufferPercent:
   ];
 };
 
-export const analyzeImageForPII = async (base64Image: string): Promise<Detection[]> => {
+export const analyzeImageForPII = async (base64Data: string): Promise<Detection[]> => {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -74,7 +74,7 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
         model: MODEL_NAME,
         contents: {
           parts: [
-            { inlineData: { data: base64Image.split(',')[1], mimeType: 'image/jpeg' } },
+            { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
             { text: prompt }
           ]
         },

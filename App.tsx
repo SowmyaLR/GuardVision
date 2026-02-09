@@ -79,19 +79,7 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isActiveImageAnalyzing]);
 
-  // Convert File to Base64 for API calls
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        resolve(reader.result as string);
-      };
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const optimizeImage = (base64: string): Promise<string> => {
+  const optimizeImage = (imageSource: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
@@ -117,9 +105,12 @@ const App: React.FC = () => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
+        // Extract and return only the base64 data (without the data URL prefix)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const base64Data = dataUrl.split(',')[1];
+        resolve(base64Data);
       };
-      img.src = base64;
+      img.src = imageSource;
     });
   };
 
@@ -138,9 +129,11 @@ const App: React.FC = () => {
     }));
     
     try {
-      const base64 = await fileToBase64(targetImage.file);
-      const optimizedImage = await optimizeImage(base64);
-      const results = await analyzeImageForPII(optimizedImage);
+      // Create lightweight blob URL instead of converting to base64 string
+      const blobUrl = URL.createObjectURL(targetImage.file);
+      try {
+        const optimizedImage = await optimizeImage(blobUrl);
+        const results = await analyzeImageForPII(optimizedImage);
       
       setState(prev => {
         const images = prev.images.map(img =>
@@ -156,8 +149,12 @@ const App: React.FC = () => {
         };
       });
       
-      const uniqueLabels = Array.from(new Set(results.map(r => r.label)));
-      setExpandedCategories(uniqueLabels.reduce((acc: Record<string, boolean>, label: string) => ({ ...acc, [label]: true }), {}));
+        const uniqueLabels = Array.from(new Set(results.map(r => r.label)));
+        setExpandedCategories(uniqueLabels.reduce((acc: Record<string, boolean>, label: string) => ({ ...acc, [label]: true }), {}));
+      } finally {
+        // Always clean up the blob URL to free memory
+        URL.revokeObjectURL(blobUrl);
+      }
     } catch (err: any) {
       const errorMessage = err?.message ?? "Unknown error";
       console.error("Privacy scan failed:", errorMessage);
