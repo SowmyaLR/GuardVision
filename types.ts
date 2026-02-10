@@ -14,10 +14,23 @@ export interface Detection {
   selected: boolean;
 }
 
+export interface ImageItem {
+  id: string;
+  fileName: string;
+  src: string; // blob URL for display (memory efficient)
+  file: File; // original file for API calls
+  detections: Detection[];
+  isAnalyzing: boolean;
+  error: string | null;
+  isProtected?: boolean; // cannot be deleted if true
+}
+
 export interface AppState {
   image: string | null;
   fileName: string | null;
   isAnalyzing: boolean;
   detections: Detection[];
   error: string | null;
+  images: ImageItem[];
+  activeImageId: string | null;
 }
