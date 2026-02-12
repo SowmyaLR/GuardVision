@@ -88,14 +88,35 @@ See the real-time AI redaction in action:
 
 2.  **Install & Run:**
     ```bash
+    cd client
     npm install
     npm run dev
     ```
 
 3.  **Configure API:**
-    Add your Gemini API key to `.env.local`:
+    Add your Gemini API key to `client/.env.local`:
     ```env
     GEMINI_API_KEY=your_key_here
+    ```
+
+### Backend (Enterprise Mode - Local Docker)
+1.  **Create env file:**
+    ```bash
+    #Windows
+    copy .env.example .env
+    # Linux/macOS
+    cp .env.example .env
+    ```
+2.  **Start API, worker, and Redis:**
+    ```bash
+    docker compose up --build
+    ```
+3.  **Check health:**
+    ```bash
+    #Windows
+    curl.exe http://localhost:9000/health
+    # Linux/macOS
+    curl http://localhost:9000/health
     ```
 
 ---

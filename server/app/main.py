@@ -5,7 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="GuardVision API")
 
-allowed_origins = os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
+allowed_origins = [
+    origin.strip() for origin in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
+]
 
 app.add_middleware(
     CORSMiddleware,
