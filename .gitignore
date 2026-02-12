@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 .env
 .env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
