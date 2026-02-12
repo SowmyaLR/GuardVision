@@ -9,10 +9,13 @@ allowed_origins = [
     origin.strip() for origin in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
 ]
 
+# Avoid credentialed requests when using wildcard origins.
+allow_creds = "*" not in allowed_origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
