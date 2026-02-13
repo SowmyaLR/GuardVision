@@ -6,3 +6,6 @@ asyncpg
 pydantic
 pydantic-settings
 greenlet
+python-multipart
+aiofiles
+redis
