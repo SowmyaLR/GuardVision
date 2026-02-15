@@ -260,7 +260,8 @@ const App: React.FC = () => {
       });
       setShowOriginal(false);
     } catch (err) {
-      console.error("Failed to read one or more image files:", err instanceof Error ? err.message : "Unknown error");
+      const safeMsg = err instanceof Error ? err.message : "Unknown error";
+      console.error("Failed to read one or more image files:", safeMsg);
       setState(prev => ({
         ...prev,
         error: "Failed to read one or more image files. Please try again.",

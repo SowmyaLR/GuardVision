@@ -114,8 +114,8 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
       };
     });
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : (error && typeof error === 'object' ? JSON.stringify(error) : String(error));
-    console.error("AI Analysis failed:", errMsg);
+    const safeMessage = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+    console.error("AI Analysis failed:", safeMessage);
     throw error;
   }
 };
