@@ -24,7 +24,11 @@ const applySafetyBuffer = (box: [number, number, number, number], bufferPercent:
 };
 
 export const analyzeImageForPII = async (base64Image: string): Promise<Detection[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY");
+  }
+  const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `
     ACT AS A HIGH-PRECISION SECURITY AUDITOR.

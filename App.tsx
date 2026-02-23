@@ -50,21 +50,34 @@ const App: React.FC = () => {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [scanMessageIndex, setScanMessageIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const blobUrlsRef = useRef<Set<string>>(new Set());
 
   // Derive active image's analyzing state
   const activeImage = state.images.find(img => img.id === state.activeImageId);
   const isActiveImageAnalyzing = activeImage?.isAnalyzing ?? false;
 
-  // Cleanup blob URLs only on component unmount
+  // Track and cleanup blob URLs
   useEffect(() => {
     return () => {
-      state.images.forEach(img => {
-        if (img.src.startsWith('blob:')) {
-          URL.revokeObjectURL(img.src);
-        }
+      blobUrlsRef.current.forEach(url => {
+        URL.revokeObjectURL(url);
       });
+      blobUrlsRef.current.clear();
     };
   }, []);
+
+  // Cleanup blob URLs when images are removed
+  useEffect(() => {
+    const currentUrls = new Set(state.images.map(img => img.src).filter(src => src.startsWith('blob:')));
+    const urlsToRevoke = Array.from(blobUrlsRef.current).filter((url): url is string => !currentUrls.has(url));
+    
+    urlsToRevoke.forEach(url => {
+      URL.revokeObjectURL(url);
+      blobUrlsRef.current.delete(url);
+    });
+    
+    currentUrls.forEach(url => blobUrlsRef.current.add(url));
+  }, [state.images]);
 
   // Cycle messages during scan
   useEffect(() => {
@@ -80,34 +93,41 @@ const App: React.FC = () => {
   }, [isActiveImageAnalyzing]);
 
   const optimizeImage = (imageSource: string): Promise<string> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const MAX_WIDTH = 1024;
-        const MAX_HEIGHT = 1024;
-        let width = img.width;
-        let height = img.height;
+        try {
+          const MAX_WIDTH = 1024;
+          const MAX_HEIGHT = 1024;
+          let width = img.width;
+          let height = img.height;
 
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
           }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          // Return the full data URL (gemini.ts will strip the prefix)
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(dataUrl);
+        } catch (err) {
+          reject(new Error('Failed to optimize image'));
         }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        // Return the full data URL (gemini.ts will strip the prefix)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        resolve(dataUrl);
+      };
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
       };
       img.src = imageSource;
     });
@@ -182,11 +202,14 @@ const App: React.FC = () => {
     // Check if adding new files would exceed 10 total images
     const totalImages = state.images.length + files.length;
     if (totalImages > 10) {
-      const excessCount = totalImages - 10;
-      setState(prev => ({
-        ...prev,
-        error: `You can upload up to 10 images total. You have ${state.images.length} images. Please select ${10 - state.images.length} or fewer images.`,
-      }));
+      setState(prev => {
+        const currentCount = prev.images.length;
+        const remainingSlots = Math.max(10 - currentCount, 0);
+        return {
+          ...prev,
+          error: `You can upload up to 10 images total. You have ${currentCount} images. Please select ${remainingSlots} or fewer images.`,
+        };
+      });
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -320,6 +343,14 @@ const App: React.FC = () => {
   };
 
   const removeImage = () => {
+    // Revoke all blob URLs before clearing state
+    state.images.forEach(img => {
+      if (img.src.startsWith('blob:')) {
+        URL.revokeObjectURL(img.src);
+        blobUrlsRef.current.delete(img.src);
+      }
+    });
+    
     setState({
       image: null,
       fileName: null,
@@ -436,9 +467,6 @@ const App: React.FC = () => {
       const image = prev.images.find(img => img.id === id);
       if (!image) return prev;
 
-      const uniqueLabels = Array.from(new Set(image.detections.map(r => r.label)));
-      setExpandedCategories(uniqueLabels.reduce((acc: Record<string, boolean>, label: string) => ({ ...acc, [label]: true }), {}));
-
       return {
         ...prev,
         activeImageId: id,
@@ -448,6 +476,14 @@ const App: React.FC = () => {
         error: image.error,
       };
     });
+    
+    // Update expanded categories after state update
+    const image = state.images.find(img => img.id === id);
+    if (image) {
+      const uniqueLabels = Array.from(new Set(image.detections.map(r => r.label)));
+      setExpandedCategories(uniqueLabels.reduce((acc: Record<string, boolean>, label: string) => ({ ...acc, [label]: true }), {}));
+    }
+    
     setShowOriginal(false);
   };
 
@@ -595,9 +631,19 @@ const App: React.FC = () => {
                           : 'border-slate-800 bg-slate-900/40 hover:border-indigo-500/40 hover:bg-slate-800/60'
                       }`}
                     >
-                      <div
+                      <button
                         onClick={() => handleSelectImage(image.id)}
-                        className="w-full flex flex-col gap-2 cursor-pointer"
+                        className="w-full flex flex-col gap-2 cursor-pointer bg-transparent border-0 p-0 text-left"
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={isActive}
+                        aria-label={`Select image: ${image.fileName}`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSelectImage(image.id);
+                          }
+                        }}
                       >
                         <div className="relative rounded-xl overflow-hidden border border-slate-800/60 h-20 bg-slate-900/60">
                           <img
@@ -618,6 +664,7 @@ const App: React.FC = () => {
                             }}
                             className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Delete image"
+                            aria-label={`Delete image: ${image.fileName}`}
                           >
                             <Trash2 className="w-3 h-3 text-white" />
                           </button>
@@ -639,7 +686,7 @@ const App: React.FC = () => {
                             )}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     </div>
                   );
                 })}
