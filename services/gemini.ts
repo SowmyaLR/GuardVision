@@ -24,7 +24,11 @@ const applySafetyBuffer = (box: [number, number, number, number], bufferPercent:
 };
 
 export const analyzeImageForPII = async (base64Image: string): Promise<Detection[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY");
+  }
+  const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `
     ACT AS A HIGH-PRECISION SECURITY AUDITOR.
@@ -62,11 +66,15 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
   `;
 
   try {
+    // Extract base64 payload without creating an intermediate array (avoid .split())
+    const base64Start = base64Image.indexOf(',');
+    const base64Data = base64Start !== -1 ? base64Image.substring(base64Start + 1) : base64Image;
+
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: {
         parts: [
-          { inlineData: { data: base64Image.split(',')[1], mimeType: 'image/jpeg' } },
+          { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
           { text: prompt }
         ]
       },
@@ -110,7 +118,8 @@ export const analyzeImageForPII = async (base64Image: string): Promise<Detection
       };
     });
   } catch (error) {
-    console.error("AI Analysis failed:", error);
+    const safeMessage = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+    console.error("AI Analysis failed:", safeMessage);
     throw error;
   }
 };
