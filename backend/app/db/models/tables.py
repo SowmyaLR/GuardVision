@@ -1,16 +1,13 @@
 import uuid
-from datetime import datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Column,
     Integer,
-    String,
     Text,
     DateTime,
     ForeignKey,
     Enum,
-    Boolean,
     CheckConstraint,
     Index
 )
@@ -52,19 +49,17 @@ class Job(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
-    files = relationship("JobFile", back_populates="job", cascade="all, delete-orphan") # Note: User mentioned "FK cascade delete disabled (audit must persist)" but for Job->JobFiles usually files go with job.
-    # User said: "FK cascade delete disabled (audit must persist)".
-    # This likely refers to AuditLogs not being deleted when Job is deleted, OR JobFiles not being deleted.
-    # "Soft-state tracking via statuses (never delete rows)" hints we shouldn't delete anyway.
-    # I will stick to default relationship but ensure FK constraints in DB allow/disallow what's needed.
-    # Re-reading: "FK cascade delete disabled (audit must persist)" -> means AuditLogs should not be deleted if Job is deleted.
-    # So on AuditLog relationship, we should probably NOT have cascade delete on the DB side, or have SET NULL.
+    # Note: FK cascade delete is disabled and state is tracked via status fields,
+    # so we avoid ORM-level delete/delete-orphan cascades on JobFile.
+    files = relationship("JobFile", back_populates="job", passive_deletes=True)
 
     audit_logs = relationship("AuditLog", back_populates="job")
 
     __table_args__ = (
         CheckConstraint('progress >= 0 AND progress <= 100', name='check_job_progress_range'),
         CheckConstraint('processed_files <= total_files', name='check_job_processed_files_count'),
+        CheckConstraint('total_files >= 0', name='check_job_total_files_positive'),
+        CheckConstraint('processed_files >= 0', name='check_job_processed_files_positive'),
         Index('idx_jobs_status', 'status'),
     )
 
@@ -85,9 +80,10 @@ class JobFile(Base):
     # Relationships
     job = relationship("Job", back_populates="files")
     result = relationship("ProcessingResult", back_populates="file", uselist=False, cascade="all, delete-orphan")
-    
+    audit_logs = relationship("AuditLog", back_populates="file")
+
     __table_args__ = (
-        CheckConstraint('retry_count <= 3', name='check_file_retry_count'),
+        CheckConstraint('retry_count >= 0 AND retry_count <= 3', name='check_file_retry_count'),
         Index('idx_job_files_job_id', 'job_id'),
         # optimized for worker queue selection
         Index('idx_job_files_status_created_at', 'status', 'created_at'),
@@ -109,7 +105,7 @@ class ProcessingResult(Base):
     file = relationship("JobFile", back_populates="result")
 
     __table_args__ = (
-        Index('idx_processing_results_file_id', 'file_id'),
+        CheckConstraint('processing_time_ms >= 0', name='check_processing_time_positive'),
     )
 
 
@@ -117,15 +113,15 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
-    file_id = Column(UUID(as_uuid=True), ForeignKey("job_files.id"), nullable=True)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="RESTRICT"), nullable=False)
+    file_id = Column(UUID(as_uuid=True), ForeignKey("job_files.id", ondelete="SET NULL"), nullable=True)
     event_type = Column(Text, nullable=False)
     details = Column(JSONB, nullable=False, default={})
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False) # Commonly needed for logs
 
     # Relationships
     job = relationship("Job", back_populates="audit_logs")
-    # No direct relationship to file defined in class spec but implied by FK.
+    file = relationship("JobFile", back_populates="audit_logs")
     
     __table_args__ = (
         Index('idx_audit_logs_job_id', 'job_id'),

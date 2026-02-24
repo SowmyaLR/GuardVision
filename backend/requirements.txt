@@ -1,8 +1,8 @@
 fastapi
 uvicorn
-sqlalchemy
+sqlalchemy~=2.0.25
 alembic
 asyncpg
 pydantic
 pydantic-settings
-greenlet
+greenlet~=3.0.0
