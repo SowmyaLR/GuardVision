@@ -11,7 +11,7 @@ class JobCreate(JobBase):
     pass
 
 class JobResponse(BaseModel):
-    job_id: UUID
+    id: UUID
     status: JobStatus
     created_at: datetime
     progress: Optional[int] = 0
@@ -22,7 +22,7 @@ class JobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class JobStatusResponse(BaseModel):
-    job_id: UUID
+    id: UUID
     status: JobStatus
     progress: int
     total_files: int

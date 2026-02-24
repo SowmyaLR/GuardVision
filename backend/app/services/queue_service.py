@@ -1,5 +1,4 @@
 from uuid import UUID
-import json
 import redis.asyncio as redis
 from app.core.config import settings
 
@@ -19,10 +18,7 @@ class QueueService:
                 # We can replicate standard queue behavior like RPUSH
                 await r.rpush("processing_queue", str(job_id))
         except Exception as e:
-            # If Redis is down, we should probably log error but not fail the HTTP request if possible?
-            # Or fail loudly? Requirement says "Worker crashes must not corrupt state", 
-            # implies robustness.
-            # "Retry-safe processing" implies we can re-queue later if needed.
-            # For this task, simple logging is likely enough, or let it propagate to 500.
+            # If Redis is down, log the error but do not fail the HTTP request.
+            # This matches the robustness requirement: state is already committed,
+            # and enqueue can be retried or handled out-of-band.
             print(f"Failed to enqueue job {job_id} to Redis: {e}")
-            raise e

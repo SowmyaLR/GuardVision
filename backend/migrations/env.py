@@ -32,6 +32,10 @@ try:
 except ImportError as e:
     print(f"Could not import app models or settings: {e}")
     target_metadata = None
+    raise ImportError(
+        "Could not import app models or settings required for Alembic migrations. "
+        "Ensure that the application is installed and PYTHONPATH is correctly configured."
+    ) from e
 
 
 def run_migrations_offline() -> None:

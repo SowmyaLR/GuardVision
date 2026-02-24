@@ -24,8 +24,8 @@ class UploadService:
         self.queue_service = QueueService()
 
     async def process_uploads(self, job_id: UUID, files: List[UploadFile]):
-        # 1. Validate Job Exists
-        job = await self.job_repo.get_job(job_id)
+        # 1. Validate Job Exists and Lock
+        job = await self.job_repo.get_job_for_update(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
             
@@ -55,14 +55,24 @@ class UploadService:
                         }
                     )
                 
-                # Size validation (rough check on content-length header if available, helpful usage)
-                # But actual stream read check is safer or just trusting middleware max_size.
-                # Here we assume client side or proxy validation, BUT task asks for validation.
-                # Note: Reading file to check size in memory is bad for large files.
-                # checking `file.size` is often 0 until read for SpooledTemporaryFile depending on FastAPI version/config.
-                # We can check file.size if it's available (Content-Length header).
-                if file.size and not validate_file_size(file.size):
-                     raise HTTPException(status_code=400, detail=f"File {file.filename} exceeds {MAX_FILE_SIZE_MB}MB")
+                # Size validation: enforce max size while streaming from the upload.
+                # We avoid relying on `UploadFile.size`, which is not reliably set across FastAPI/Starlette versions.
+                max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+                total_bytes = 0
+                chunk_size = 1024 * 1024  # 1MB
+                while True:
+                    chunk = await file.read(chunk_size)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > max_bytes:
+                        await file.close()
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"File {file.filename} exceeds {MAX_FILE_SIZE_MB}MB"
+                        )
+                # Reset the stream position so downstream code can read the full content.
+                await file.seek(0)
 
                 # Generate unique filename
                 ext = get_file_extension(file.filename)
@@ -104,4 +114,4 @@ class UploadService:
             # Cleanup files on failure
             for path in uploaded_paths:
                 cleanup_failed_upload(path)
-            raise e
+            raise

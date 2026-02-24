@@ -38,7 +38,8 @@ async def upload_files(
         raise he
     except Exception as e:
         # Internal server error for other failures
-        raise HTTPException(status_code=500, detail=str(e))
+        # Ideally log the error here: logger.error(e)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job_status(job_id: UUID, db: AsyncSession = Depends(get_db)):
