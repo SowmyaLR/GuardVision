@@ -98,6 +98,26 @@ See the real-time AI redaction in action:
     GEMINI_API_KEY=your_key_here
     ```
 
+### Database Setup & Migration (Enterprise Backend)
+
+1.  **Configure Environment**
+    Create a `.env` file in the `backend/` directory and set your `DATABASE_URL` (e.g., `postgresql+asyncpg://user:pass@localhost/guardvision`).
+
+2.  **Initialize Database**
+    ```bash
+    cd backend
+    
+    # Install dependencies
+    pip install -r requirements.txt
+    
+    # Run migrations
+    alembic revision --autogenerate -m "Initial schema"
+    alembic upgrade head
+    
+    # Seed data
+    python scripts/create_sample_job.py
+    ```
+
 ---
 
 ## 🗺️ Roadmap: The Path to Zero-Trust
