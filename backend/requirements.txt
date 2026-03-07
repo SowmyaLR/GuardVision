@@ -9,4 +9,9 @@ greenlet~=3.0.0
 python-multipart~=0.0.22
 aiofiles~=25.1.0
 redis~=7.1.0
+celery~=5.3.6
+presidio-analyzer~=2.2.355
+presidio-image-redactor~=0.0.51
+pydicom~=3.0.0
+Pillow~=10.2.0
 

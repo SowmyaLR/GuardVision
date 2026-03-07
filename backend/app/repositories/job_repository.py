@@ -47,6 +47,39 @@ class JobRepository:
             .execution_options(synchronize_session="fetch")
         )
         await self.session.execute(stmt)
+
+    async def increment_processed(self, job_id: UUID, count: int = 1) -> Job:
+        # Atomic update of processed_files + update progress
+        # Since calculation of progress depends on existing total_files, 
+        # using explicit GET then UPDATE inside transaction is usually safer if we use row locking.
+        # But we can try to do in one UPDATE if we rely on stored total_files?
+        # Update jobs set processed_files = processed_files + 1, progress = ((processed_files + 1) * 100) / total_files 
+        # But total_files can be 0 (rarely, if valid job). Handle divisor 0.
+
+        # Let's lock row first.
+        stmt_lock = select(Job).where(Job.id == job_id).with_for_update()
+        res = await self.session.execute(stmt_lock)
+        job = res.scalars().first()
+        
+        if job:
+            job.processed_files += count
+            if job.total_files > 0:
+                job.progress = int((job.processed_files / job.total_files) * 100)
+            else:
+                job.progress = 100 # Or 0?
+            
+            # Check completion logic if needed here or outside.
+            if job.processed_files >= job.total_files:
+                # Potential completion? Status update managed by caller or here?
+                pass
+            
+            await self.session.flush()
+        return job
+
+    async def get_job_file_counts(self, job_id: UUID):
+         # Helper to check if completely done including failures
+         pass
+
         
         # Add Audit Log
         audit = AuditLog(
